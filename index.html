@@ -41,13 +41,16 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 #exitFull{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:10px;width:36px;height:36px;padding:0;border-radius:50%;
   background:rgba(0,0,0,.45);color:#fff;font-size:18px;line-height:1;opacity:.5}
 body.full{overflow:hidden}
+#diag{position:absolute;left:10px;top:calc(env(safe-area-inset-top,0px) + 10px);margin:0;padding:6px 8px;background:rgba(0,0,0,.6);color:#fff;font:11px/1.4 ui-monospace,Menlo,monospace;z-index:2;pointer-events:none}
+#sa{position:fixed;top:env(safe-area-inset-top,0px);bottom:env(safe-area-inset-bottom,0px);left:0;width:0;visibility:hidden}
 body.full .sheet{position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;height:100lvh;max-width:none;aspect-ratio:auto;border-radius:0;box-shadow:none;z-index:10}
 html:has(body.full){background:#000}
 </style>
 
+<div id="sa"></div>
 <div class="wrap">
   <h1>LENTICULAR SHITAJIKI</h1>
-  <div class="sheet" id="sheet"><canvas id="gl"></canvas><button id="exitFull" type="button" aria-label="全画面を閉じる" hidden>×</button></div>
+  <div class="sheet" id="sheet"><canvas id="gl"></canvas><pre id="diag" hidden></pre><button id="exitFull" type="button" aria-label="全画面を閉じる" hidden>×</button></div>
   <p class="hint">左右にドラッグすると傾く。縦方向は表面のツヤが動く。</p>
   <div class="row">
     <button id="motionBtn" type="button">傾きセンサーを使う</button>
@@ -185,8 +188,20 @@ btn.addEventListener('click',async()=>{
 
 // full view: the sheet fills the window (real Fullscreen API too, where the browser has it)
 let wake=null;
+function diag(){
+  const sa=$('sa').getBoundingClientRect(), vv=window.visualViewport;
+  $('diag').textContent=['v3',
+    'standalone '+(navigator.standalone===true||matchMedia('(display-mode: standalone)').matches),
+    'screen '+screen.width+'x'+screen.height,
+    'inner '+innerWidth+'x'+innerHeight,
+    'client '+document.documentElement.clientHeight,
+    'visual '+(vv?Math.round(vv.height)+' top'+Math.round(vv.offsetTop):'-'),
+    'safe top '+Math.round(sa.top)+' bottom '+Math.round(innerHeight-sa.bottom),
+    'sheet '+Math.round(sheet.getBoundingClientRect().height)].join('\n');
+}
 function setFull(on){
-  document.body.classList.toggle('full',on); $('exitFull').hidden=!on;
+  document.body.classList.toggle('full',on); $('exitFull').hidden=!on; $('diag').hidden=!on;
+  if(on)setTimeout(diag,300);
   if(on){
     const el=document.documentElement;
     if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});
