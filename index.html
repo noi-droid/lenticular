@@ -39,7 +39,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 #motionMsg{color:var(--mute);margin:0}
 #exitFull{position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);right:16px;width:44px;height:44px;padding:0;z-index:3;touch-action:manipulation;border-radius:50%;
-  background:rgba(0,0,0,.45);color:#fff;font-size:18px;line-height:1;opacity:.5}
+  background:none;color:#fff;font-size:28px;font-weight:400;line-height:1;text-shadow:0 0 4px rgba(0,0,0,.5)}
 body.full{overflow:hidden}
 #diag{position:absolute;left:10px;top:calc(env(safe-area-inset-top,0px) + 10px);margin:0;padding:6px 8px;background:rgba(0,0,0,.6);color:#fff;font:11px/1.4 ui-monospace,Menlo,monospace;z-index:2;pointer-events:none}
 #sa{position:fixed;top:env(safe-area-inset-top,0px);bottom:env(safe-area-inset-bottom,0px);left:0;width:0;visibility:hidden}
@@ -163,12 +163,14 @@ const still=matchMedia('(prefers-reduced-motion: reduce)').matches;
 function fromPointer(e){const r=sheet.getBoundingClientRect();
   target.x=Math.max(-1,Math.min(1,((e.clientX-r.left)/r.width-.5)*2));
   target.y=Math.max(-1,Math.min(1,((e.clientY-r.top)/r.height-.5)*-2));touched=true;}
-sheet.addEventListener('pointerdown',e=>{sheet.setPointerCapture(e.pointerId);fromPointer(e);});
-sheet.addEventListener('pointermove',e=>{if(e.pointerType==='mouse'||e.buttons)fromPointer(e);});
+let downAt=null;
+sheet.addEventListener('pointerdown',e=>{downAt={x:e.clientX,y:e.clientY,t:performance.now()};if(motionOn)return;sheet.setPointerCapture(e.pointerId);fromPointer(e);});
+sheet.addEventListener('pointermove',e=>{if(motionOn)return;if(e.pointerType==='mouse'||e.buttons)fromPointer(e);});
 
 const btn=$('motionBtn'), msg=$('motionMsg');
 function say(s){msg.textContent=s;msg.hidden=false;}
-function onOri(e){ if(e.gamma==null)return; touched=true;
+let motionOn=false;
+function onOri(e){ if(e.gamma==null)return; touched=true; motionOn=true;
   target.x=Math.max(-1,Math.min(1,e.gamma/28));
   target.y=Math.max(-1,Math.min(1,((e.beta||45)-45)/30)); }
 btn.addEventListener('click',async()=>{
@@ -190,7 +192,7 @@ btn.addEventListener('click',async()=>{
 let wake=null;
 function diag(){
   const sa=$('sa').getBoundingClientRect(), vv=window.visualViewport;
-  $('diag').textContent=['v5',
+  $('diag').textContent=['v6',
     'standalone '+(navigator.standalone===true||matchMedia('(display-mode: standalone)').matches),
     'screen '+screen.width+'x'+screen.height,
     'inner '+innerWidth+'x'+innerHeight,
@@ -202,7 +204,7 @@ function diag(){
 let savedY=0;
 function setFull(on){
   if(on){savedY=window.scrollY;window.scrollTo(0,0);}
-  document.body.classList.toggle('full',on); $('exitFull').hidden=!on; $('diag').hidden=!on;
+  document.body.classList.toggle('full',on); $('exitFull').hidden=!on||motionOn; $('diag').hidden=!on;
   if(on)setTimeout(diag,300);
   if(on){
     const el=document.documentElement;
@@ -216,9 +218,13 @@ function setFull(on){
 }
 $('fullBtn').addEventListener('click',()=>setFull(true));
 let lastTap=0;
-sheet.addEventListener('pointerup',()=>{
-  if(!document.body.classList.contains('full'))return;
-  const now=performance.now(); if(now-lastTap<300){lastTap=0;setFull(false);} else lastTap=now;});
+sheet.addEventListener('pointerup',e=>{
+  if(!document.body.classList.contains('full')||!downAt)return;
+  const now=performance.now();
+  const tap=Math.hypot(e.clientX-downAt.x,e.clientY-downAt.y)<12&&now-downAt.t<350;
+  downAt=null; if(!tap)return;
+  if(motionOn){setFull(false);return;}
+  if(now-lastTap<300){lastTap=0;setFull(false);} else lastTap=now;});
 $('exitFull').addEventListener('pointerdown',e=>e.stopPropagation());
 $('exitFull').addEventListener('pointerup',e=>{e.stopPropagation();e.preventDefault();setFull(false);});
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&document.body.classList.contains('full'))setFull(false);});
