@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Lenticular Shitajiki</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: one sheet in B5 portrait proportion, centred; a narrow control strip under it */
+:root{
+  --bg:#e9e7ee; --fg:#1b1a22; --mute:#6c6a78; --line:#c9c6d3; --panel:#f4f3f7; --accent:#d4307a;
+  --display:"Anton","Arial Narrow",Impact,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#131218; --fg:#eceaf2; --mute:#8f8c9c; --line:#34323e; --panel:#1c1b23; --accent:#ff5fa2; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#131218; --fg:#eceaf2; --mute:#8f8c9c; --line:#34323e; --panel:#1c1b23; --accent:#ff5fa2; color-scheme:dark }
+body{background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.6}
+.wrap{max-width:440px;margin:0 auto;padding-inline:16px;padding-block:24px 40px;display:flex;flex-direction:column;gap:20px}
+h1{font-family:var(--display);font-weight:400;font-size:28px;letter-spacing:.02em;margin:0;line-height:1.1}
+.sheet{position:relative;width:100%;aspect-ratio:182/257;border-radius:6px;overflow:hidden;
+  box-shadow:0 1px 0 var(--line),0 18px 40px -18px rgba(0,0,0,.45);touch-action:none;cursor:ew-resize;background:var(--panel)}
+canvas{position:absolute;top:0;left:0;display:block;width:100%;height:100%}
+.hint{color:var(--mute);margin:0}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:14px 16px;border-top:1px solid var(--line);padding-top:16px}
+.controls label{display:flex;flex-direction:column;gap:4px;min-width:0;color:var(--mute);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.controls input[type=text]{font:500 14px var(--mono);color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px;min-width:0;width:100%;box-sizing:border-box}
+.controls input[type=range]{width:100%;accent-color:var(--accent)}
+.controls input[type=file]{font:11px var(--mono);color:var(--mute);max-width:100%}
+button{font:500 13px var(--mono);color:var(--bg);background:var(--fg);border:0;border-radius:4px;padding:10px 14px;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+#motionMsg{color:var(--mute);margin:0}
+#exitFull{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:10px;width:36px;height:36px;padding:0;border-radius:50%;
+  background:rgba(0,0,0,.45);color:#fff;font-size:18px;line-height:1;opacity:.5}
+body.full{overflow:hidden}
+body.full .sheet{position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;height:100lvh;max-width:none;aspect-ratio:auto;border-radius:0;box-shadow:none;z-index:10}
+html:has(body.full){background:#000}
+</style>
+
+<div class="wrap">
+  <h1>LENTICULAR SHITAJIKI</h1>
+  <div class="sheet" id="sheet"><canvas id="gl"></canvas><button id="exitFull" type="button" aria-label="全画面を閉じる" hidden>×</button></div>
+  <p class="hint">左右にドラッグすると傾く。縦方向は表面のツヤが動く。</p>
+  <div class="row">
+    <button id="motionBtn" type="button">傾きセンサーを使う</button>
+    <button id="fullBtn" type="button">全画面</button>
+    <p id="motionMsg" hidden></p>
+  </div>
+  <div class="controls">
+    <label>絵 A の文字<input id="txtA" type="text" value="TOKYO"></label>
+    <label>絵 B の文字<input id="txtB" type="text" value="BERLIN"></label>
+    <label>絵 A を画像に<input id="imgA" type="file" accept="image/*"></label>
+    <label>絵 B を画像に<input id="imgB" type="file" accept="image/*"></label>
+    <label>レンズの太さ<input id="pitch" type="range" min="1.5" max="14" step="0.5" value="3.5"></label>
+    <label>絵の混ざり<input id="ghost" type="range" min="0" max="1" step="0.01" value="0.35"></label>
+    <label>粒<input id="grain" type="range" min="0" max="1" step="0.01" value="0.6"></label>
+    <label>ツヤ<input id="gloss" type="range" min="0" max="1" step="0.01" value="0.55"></label>
+  </div>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const sheet=$('sheet'), cv=$('gl');
+const gl=cv.getContext('webgl',{antialias:false});
+if(!gl){ sheet.textContent='WebGLが使えない環境です'; return; }
+
+const VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+const FS=`precision highp float;
+uniform sampler2D uA,uB; uniform vec2 uRes,uTilt; uniform float uPitch,uGhost,uGrain,uGloss;
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+// which printed strip the lens is looking at: 0 = A, 1 = B, periodic in t
+float fm(float t){float tri=abs(fract(t)*2.-1.);float w=uGhost*.45+.02;return 1.-smoothstep(.5-w,.5+w,tri);}
+void main(){
+  vec2 px=gl_FragCoord.xy;
+  float lx=px.x/uPitch; float i=floor(lx); float u=fract(lx)-.5;
+  // one lens shows one point of the picture: sample at the lens centre
+  vec2 uv=vec2((i+.5)*uPitch/uRes.x, px.y/uRes.y);
+  // viewing angle = tilt + parallax across the sheet + per-lens misregistration
+  float ang=uTilt.x*1.6+(uv.x-.5)*.35+(hash(vec2(i,7.))-.5)*.05;
+  // printed dots under the lens, magnified into grains
+  float cellH=max(uPitch*.8,2.);
+  float g=hash(vec2(i,floor(px.y/cellH))+floor(ang*7.)*17.);
+  float t=ang+u*.16+(g-.5)*uGrain*.22;
+  vec3 m=vec3(fm(t-.025),fm(t),fm(t+.025));
+  vec3 col=mix(texture2D(uA,uv).rgb,texture2D(uB,uv).rgb,m);
+  col*=1.+(g-.5)*uGrain*.45;
+  // lens profile: dark grooves, a highlight line that walks across each lens
+  col*=1.-.3*pow(abs(u)*2.,3.);
+  float hp=clamp(uTilt.x*.45+(uv.x-.5)*.2,-.42,.42);
+  float spec=exp(-pow((u-hp)/.09,2.));
+  float band=exp(-pow((uv.y-.5-uTilt.y*.7)/.28,2.));
+  col+=spec*band*uGloss*.55;
+  gl_FragColor=vec4(col,1.);
+}`;
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);gl.useProgram(prog);
+gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['uA','uB','uRes','uTilt','uPitch','uGhost','uGrain','uGloss'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+function mkTex(unit){const t=gl.createTexture();gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,t);
+  [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T].forEach(k=>gl.texParameteri(gl.TEXTURE_2D,k,gl.CLAMP_TO_EDGE));
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);return t;}
+const tex=[mkTex(0),mkTex(1)];
+gl.uniform1i(U.uA,0);gl.uniform1i(U.uB,1);
+
+// the two printed pictures (fixed ink colours: they are the artwork, not page chrome)
+const INK=[{bg:'#f2d21b',fg:'#1620c8',sub:'#e23a2e'},{bg:'#1ab6a6',fg:'#fff4e0',sub:'#2a1144'}];
+const imgs=[null,null];
+const src=document.createElement('canvas'), sx=src.getContext('2d');
+function drawFrame(k){
+  const w=src.width,h=src.height,ink=INK[k];
+  sx.fillStyle=ink.bg;sx.fillRect(0,0,w,h);
+  if(imgs[k]){const im=imgs[k],s=Math.max(w/im.width,h/im.height);
+    sx.drawImage(im,(w-im.width*s)/2,(h-im.height*s)/2,im.width*s,im.height*s);
+  }else{
+    const text=($(k?'txtB':'txtA').value||' ').toUpperCase();
+    // big disc so the flip reads as colour too
+    sx.fillStyle=ink.sub;sx.beginPath();
+    sx.arc(k? w*.68:w*.34, k? h*.3:h*.7, w*.3,0,Math.PI*2);sx.fill();
+    // word set vertically, filling the sheet height
+    sx.save();sx.translate(w/2,h/2);sx.rotate(-Math.PI/2);
+    let fs=w*1.1;sx.font=`${fs}px Anton, Impact, sans-serif`;
+    const tw=sx.measureText(text).width; fs*=Math.min(1,(h*.9)/tw);
+    sx.font=`${fs}px Anton, Impact, sans-serif`;
+    sx.textAlign='center';sx.textBaseline='middle';sx.fillStyle=ink.fg;sx.fillText(text,0,fs*.04);
+    sx.restore();
+  }
+  gl.activeTexture(gl.TEXTURE0+k);gl.bindTexture(gl.TEXTURE_2D,tex[k]);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src);
+}
+function redraw(){drawFrame(0);drawFrame(1);}
+let dpr=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,3);
+  const r=sheet.getBoundingClientRect();
+  const w=Math.max(2,Math.round(r.width*dpr)),h=Math.max(2,Math.round(r.height*dpr));
+  if(cv.width===w&&cv.height===h)return;
+  cv.width=w;cv.height=h;src.width=w;src.height=h;gl.viewport(0,0,w,h);redraw();
+}
+new ResizeObserver(resize).observe(sheet);
+
+// tilt: pointer, or device orientation where the browser allows it
+const tilt={x:0,y:0}, target={x:0,y:0};
+let touched=false, t0=performance.now();
+const still=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function fromPointer(e){const r=sheet.getBoundingClientRect();
+  target.x=Math.max(-1,Math.min(1,((e.clientX-r.left)/r.width-.5)*2));
+  target.y=Math.max(-1,Math.min(1,((e.clientY-r.top)/r.height-.5)*-2));touched=true;}
+sheet.addEventListener('pointerdown',e=>{sheet.setPointerCapture(e.pointerId);fromPointer(e);});
+sheet.addEventListener('pointermove',e=>{if(e.pointerType==='mouse'||e.buttons)fromPointer(e);});
+
+const btn=$('motionBtn'), msg=$('motionMsg');
+function say(s){msg.textContent=s;msg.hidden=false;}
+function onOri(e){ if(e.gamma==null)return; touched=true;
+  target.x=Math.max(-1,Math.min(1,e.gamma/28));
+  target.y=Math.max(-1,Math.min(1,((e.beta||45)-45)/30)); }
+btn.addEventListener('click',async()=>{
+  const D=window.DeviceOrientationEvent;
+  if(!D){say('この端末には傾きセンサーがない。ドラッグで傾けて。');return;}
+  try{
+    if(typeof D.requestPermission==='function'){
+      const r=await D.requestPermission(); if(r!=='granted')throw new Error(r);
+    }
+    let got=false; const probe=e=>{if(e.gamma!=null)got=true;};
+    window.addEventListener('deviceorientation',probe);
+    window.addEventListener('deviceorientation',onOri);
+    setTimeout(()=>{window.removeEventListener('deviceorientation',probe);
+      say(got?'センサー有効。端末を左右に傾けて。':'このページの中ではセンサーの値が届かない。ドラッグで傾けて。');},900);
+  }catch(err){say('このページの中ではセンサーが許可されない。ドラッグで傾けて。');}
+});
+
+// full view: the sheet fills the window (real Fullscreen API too, where the browser has it)
+let wake=null;
+function setFull(on){
+  document.body.classList.toggle('full',on); $('exitFull').hidden=!on;
+  if(on){
+    const el=document.documentElement;
+    if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});
+    if(navigator.wakeLock)navigator.wakeLock.request('screen').then(w=>wake=w).catch(()=>{});
+  }else{
+    if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
+    if(wake){wake.release().catch(()=>{});wake=null;}
+  }
+}
+$('fullBtn').addEventListener('click',()=>setFull(true));
+$('exitFull').addEventListener('pointerdown',e=>e.stopPropagation());
+$('exitFull').addEventListener('click',()=>setFull(false));
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&document.body.classList.contains('full'))setFull(false);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')setFull(false);});
+
+['txtA','txtB'].forEach((id,k)=>$(id).addEventListener('input',()=>{imgs[k]=null;drawFrame(k);}));
+['imgA','imgB'].forEach((id,k)=>$(id).addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f)return; const im=new Image();
+  im.onload=()=>{imgs[k]=im;drawFrame(k);URL.revokeObjectURL(im.src);}; im.src=URL.createObjectURL(f);}));
+
+function frame(now){
+  if(!touched&&!still){target.x=Math.sin((now-t0)/1400)*.55;target.y=Math.sin((now-t0)/2300)*.3;}
+  tilt.x+=(target.x-tilt.x)*.14;tilt.y+=(target.y-tilt.y)*.14;
+  gl.uniform2f(U.uRes,cv.width,cv.height);
+  gl.uniform2f(U.uTilt,tilt.x,tilt.y);
+  gl.uniform1f(U.uPitch,Math.max(2,+$('pitch').value*dpr));
+  gl.uniform1f(U.uGhost,+$('ghost').value);
+  gl.uniform1f(U.uGrain,+$('grain').value);
+  gl.uniform1f(U.uGloss,+$('gloss').value);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(frame);
+}
+resize();
+if(still){target.x=.18;}
+requestAnimationFrame(frame);
+if(document.fonts&&document.fonts.load)document.fonts.load('100px Anton').then(redraw).catch(()=>{});
+})();
+</script>
+
+</body>
+</html>
