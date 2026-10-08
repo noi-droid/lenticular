@@ -38,7 +38,7 @@ button{font:500 13px var(--mono);color:var(--bg);background:var(--fg);border:0;b
 button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 #motionMsg{color:var(--mute);margin:0}
-#exitFull{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:10px;width:44px;height:44px;padding:0;z-index:3;touch-action:manipulation;border-radius:50%;
+#exitFull{position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);right:16px;width:44px;height:44px;padding:0;z-index:3;touch-action:manipulation;border-radius:50%;
   background:rgba(0,0,0,.45);color:#fff;font-size:18px;line-height:1;opacity:.5}
 body.full{overflow:hidden}
 #diag{position:absolute;left:10px;top:calc(env(safe-area-inset-top,0px) + 10px);margin:0;padding:6px 8px;background:rgba(0,0,0,.6);color:#fff;font:11px/1.4 ui-monospace,Menlo,monospace;z-index:2;pointer-events:none}
@@ -190,7 +190,7 @@ btn.addEventListener('click',async()=>{
 let wake=null;
 function diag(){
   const sa=$('sa').getBoundingClientRect(), vv=window.visualViewport;
-  $('diag').textContent=['v4',
+  $('diag').textContent=['v5',
     'standalone '+(navigator.standalone===true||matchMedia('(display-mode: standalone)').matches),
     'screen '+screen.width+'x'+screen.height,
     'inner '+innerWidth+'x'+innerHeight,
@@ -215,6 +215,10 @@ function setFull(on){
   }
 }
 $('fullBtn').addEventListener('click',()=>setFull(true));
+let lastTap=0;
+sheet.addEventListener('pointerup',()=>{
+  if(!document.body.classList.contains('full'))return;
+  const now=performance.now(); if(now-lastTap<300){lastTap=0;setFull(false);} else lastTap=now;});
 $('exitFull').addEventListener('pointerdown',e=>e.stopPropagation());
 $('exitFull').addEventListener('pointerup',e=>{e.stopPropagation();e.preventDefault();setFull(false);});
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&document.body.classList.contains('full'))setFull(false);});
