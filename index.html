@@ -52,6 +52,8 @@ html:has(body.full){background:#000}
   <div class="row">
     <button id="motionBtn" type="button">傾きセンサーを使う</button>
     <button id="fullBtn" type="button">全画面</button>
+    <button id="recBtn" type="button">15秒の動画を書き出す</button>
+    <button id="saveBtn" type="button" hidden>動画を保存</button>
     <p id="motionMsg" hidden></p>
   </div>
   <div class="controls">
@@ -147,7 +149,7 @@ let dpr=1;
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,3);
   const r=sheet.getBoundingClientRect();
-  const w=Math.max(2,Math.round(r.width*dpr)),h=Math.max(2,Math.round(r.height*dpr));
+  const w=Math.max(2,Math.round(r.width*dpr/2)*2),h=Math.max(2,Math.round(r.height*dpr/2)*2);
   if(cv.width===w&&cv.height===h)return;
   cv.width=w;cv.height=h;src.width=w;src.height=h;gl.viewport(0,0,w,h);redraw();
 }
@@ -157,7 +159,7 @@ new ResizeObserver(resize).observe(sheet);
 const tilt={x:0,y:0}, target={x:0,y:0};
 let touched=false, t0=performance.now();
 const still=matchMedia('(prefers-reduced-motion: reduce)').matches;
-function fromPointer(e){const r=sheet.getBoundingClientRect();
+function fromPointer(e){if(rec)return;const r=sheet.getBoundingClientRect();
   target.x=Math.max(-1,Math.min(1,((e.clientX-r.left)/r.width-.5)*2));
   target.y=Math.max(-1,Math.min(1,((e.clientY-r.top)/r.height-.5)*-2));touched=true;}
 let downAt=null;
@@ -167,7 +169,7 @@ sheet.addEventListener('pointermove',e=>{if(motionOn)return;if(e.pointerType==='
 const btn=$('motionBtn'), msg=$('motionMsg');
 function say(s){msg.textContent=s;msg.hidden=false;}
 let motionOn=false;
-function onOri(e){ if(e.gamma==null)return; touched=true; motionOn=true;
+function onOri(e){ if(e.gamma==null||rec)return; touched=true; motionOn=true;
   target.x=Math.max(-1,Math.min(1,e.gamma/28));
   target.y=Math.max(-1,Math.min(1,((e.beta||45)-45)/30)); }
 function motionOff(){
@@ -229,8 +231,56 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')setFull(false);});
   // clear the picker so choosing the same file name again still fires change
   e.target.value='';}));
 
+// ---- 15 s video: a scripted left/right drag with a few holds ----
+const KEYS=[[0,0],[1.2,-.85],[3.6,.85],[4.6,.85],[7,-.85],[7.8,-.85],[9.6,.05],[10.8,.05],[12.6,.7],[13.4,.7],[15,0]];
+function dragPath(t){
+  for(let i=1;i<KEYS.length;i++){const [t1,v1]=KEYS[i],[t0_,v0]=KEYS[i-1];
+    if(t<=t1){const u=(t-t0_)/(t1-t0_),e=u*u*(3-2*u);return v0+(v1-v0)*e;}}
+  return 0;
+}
+let rec=null, clip=null;
+const recBtn=$('recBtn'), saveBtn=$('saveBtn');
+function pickType(){
+  if(!window.MediaRecorder)return null;
+  return ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm']
+    .find(t=>MediaRecorder.isTypeSupported(t))||'';
+}
+recBtn.addEventListener('click',()=>{
+  const type=pickType();
+  if(type===null||!cv.captureStream){say('このブラウザは動画の書き出しに対応してない。');return;}
+  const stream=cv.captureStream(30);
+  const mr=new MediaRecorder(stream,Object.assign({videoBitsPerSecond:16e6},type?{mimeType:type}:{}));
+  const chunks=[];
+  mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+  mr.onstop=()=>{
+    stream.getTracks().forEach(t=>t.stop());
+    const mime=mr.mimeType||type||'video/webm';
+    const ext=mime.includes('mp4')?'mp4':'webm';
+    clip=new File([new Blob(chunks,{type:mime})],'lenticular-'+Date.now()+'.'+ext,{type:mime});
+    rec=null; recBtn.disabled=false; recBtn.textContent='15秒の動画を書き出す';
+    saveBtn.hidden=false; say('書き出し完了（'+ext.toUpperCase()+'）。「動画を保存」を押して。');
+  };
+  clip=null; saveBtn.hidden=true; recBtn.disabled=true;
+  tilt.x=0; tilt.y=0;
+  rec={t0:performance.now(),mr};
+  mr.start(500);
+  const tick=()=>{ if(!rec)return; const left=Math.ceil(15-(performance.now()-rec.t0)/1000);
+    if(left<=0){mr.stop();return;} recBtn.textContent='書き出し中… '+left+'秒'; setTimeout(tick,200); };
+  tick();
+});
+saveBtn.addEventListener('click',async()=>{
+  if(!clip)return;
+  // iPhone: share sheet ("ビデオを保存" puts it in Photos); elsewhere: a normal download
+  if(navigator.canShare&&navigator.canShare({files:[clip]})){
+    try{await navigator.share({files:[clip]});return;}catch(e){if(e.name==='AbortError')return;}
+  }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(clip); a.download=clip.name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+});
+
 function frame(now){
-  if(!touched&&!still){target.x=Math.sin((now-t0)/1400)*.55;target.y=Math.sin((now-t0)/2300)*.3;}
+  if(rec){const t=(now-rec.t0)/1000; target.x=dragPath(t); target.y=Math.sin(t*1.3)*.12;}
+  else if(!touched&&!still){target.x=Math.sin((now-t0)/1400)*.55;target.y=Math.sin((now-t0)/2300)*.3;}
   tilt.x+=(target.x-tilt.x)*.14;tilt.y+=(target.y-tilt.y)*.14;
   gl.uniform2f(U.uRes,cv.width,cv.height);
   gl.uniform2f(U.uTilt,tilt.x,tilt.y);
