@@ -199,7 +199,7 @@ btn.addEventListener('click',async()=>{
 let wake=null;
 function diag(){
   const sa=$('sa').getBoundingClientRect(), vv=window.visualViewport;
-  $('diag').textContent=['v7',
+  $('diag').textContent=['v8',
     'standalone '+(navigator.standalone===true||matchMedia('(display-mode: standalone)').matches),
     'screen '+screen.width+'x'+screen.height,
     'inner '+innerWidth+'x'+innerHeight,
@@ -240,7 +240,9 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')setFull(false);});
 ['txtA','txtB'].forEach((id,k)=>$(id).addEventListener('input',()=>{imgs[k]=null;drawFrame(k);}));
 ['imgA','imgB'].forEach((id,k)=>$(id).addEventListener('change',e=>{
   const f=e.target.files[0]; if(!f)return; const im=new Image();
-  im.onload=()=>{imgs[k]=im;drawFrame(k);URL.revokeObjectURL(im.src);}; im.src=URL.createObjectURL(f);}));
+  im.onload=()=>{imgs[k]=im;drawFrame(k);URL.revokeObjectURL(im.src);}; im.src=URL.createObjectURL(f);
+  // clear the picker so choosing the same file name again still fires change
+  e.target.value='';}));
 
 function frame(now){
   if(!touched&&!still){target.x=Math.sin((now-t0)/1400)*.55;target.y=Math.sin((now-t0)/2300)*.3;}
