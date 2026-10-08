@@ -59,8 +59,8 @@ html:has(body.full){background:#000}
   <div class="controls">
     <label>絵 A の文字<input id="txtA" type="text" value="TOKYO"></label>
     <label>絵 B の文字<input id="txtB" type="text" value="BERLIN"></label>
-    <label>絵 A を画像に<input id="imgA" type="file" accept="image/*"></label>
-    <label>絵 B を画像に<input id="imgB" type="file" accept="image/*"></label>
+    <label>絵 A を画像・動画に<input id="imgA" type="file" accept="image/*,video/*"></label>
+    <label>絵 B を画像・動画に<input id="imgB" type="file" accept="image/*,video/*"></label>
     <label>レンズの太さ<input id="pitch" type="range" min="1.5" max="14" step="0.5" value="3.5"></label>
     <label>絵の混ざり<input id="ghost" type="range" min="0" max="1" step="0.01" value="0.35"></label>
     <label>粒<input id="grain" type="range" min="0" max="1" step="0.01" value="0.6"></label>
@@ -126,8 +126,9 @@ const src=document.createElement('canvas'), sx=src.getContext('2d');
 function drawFrame(k){
   const w=src.width,h=src.height,ink=INK[k];
   sx.fillStyle=ink.bg;sx.fillRect(0,0,w,h);
-  if(imgs[k]){const im=imgs[k],s=Math.max(w/im.width,h/im.height);
-    sx.drawImage(im,(w-im.width*s)/2,(h-im.height*s)/2,im.width*s,im.height*s);
+  if(imgs[k]){const im=imgs[k],iw=im.videoWidth||im.naturalWidth||im.width,ih=im.videoHeight||im.naturalHeight||im.height;
+    const s=Math.max(w/iw,h/ih);
+    if(iw&&ih)sx.drawImage(im,(w-iw*s)/2,(h-ih*s)/2,iw*s,ih*s);
   }else{
     const text=($(k?'txtB':'txtA').value||' ').toUpperCase();
     // big disc so the flip reads as colour too
@@ -224,10 +225,27 @@ $('exitFull').addEventListener('pointerup',e=>{e.stopPropagation();e.preventDefa
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&document.body.classList.contains('full'))setFull(false);});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')setFull(false);});
 
-['txtA','txtB'].forEach((id,k)=>$(id).addEventListener('input',()=>{imgs[k]=null;drawFrame(k);}));
+// a source is text (null), a still image, or a looping muted video
+function setSource(k,el){
+  const old=imgs[k];
+  if(old&&old.tagName==='VIDEO'){old.pause();URL.revokeObjectURL(old.src);}
+  imgs[k]=el; drawFrame(k);
+}
+const isVideo=k=>imgs[k]&&imgs[k].tagName==='VIDEO';
+['txtA','txtB'].forEach((id,k)=>$(id).addEventListener('input',()=>setSource(k,null)));
 ['imgA','imgB'].forEach((id,k)=>$(id).addEventListener('change',e=>{
-  const f=e.target.files[0]; if(!f)return; const im=new Image();
-  im.onload=()=>{imgs[k]=im;drawFrame(k);URL.revokeObjectURL(im.src);}; im.src=URL.createObjectURL(f);
+  const f=e.target.files[0]; if(!f)return;
+  if(f.type.startsWith('video/')){
+    const v=document.createElement('video');
+    v.muted=true;v.defaultMuted=true;v.loop=true;v.playsInline=true;v.autoplay=true;
+    v.setAttribute('muted','');v.setAttribute('playsinline','');
+    v.addEventListener('loadeddata',()=>setSource(k,v),{once:true});
+    v.addEventListener('error',()=>say('この動画は読み込めなかった。MP4かMOVで試して。'),{once:true});
+    v.src=URL.createObjectURL(f); v.play().catch(()=>{});
+  }else{
+    const im=new Image();
+    im.onload=()=>{setSource(k,im);URL.revokeObjectURL(im.src);}; im.src=URL.createObjectURL(f);
+  }
   // clear the picker so choosing the same file name again still fires change
   e.target.value='';}));
 
@@ -262,6 +280,7 @@ recBtn.addEventListener('click',()=>{
   };
   clip=null; saveBtn.hidden=true; recBtn.disabled=true;
   tilt.x=0; tilt.y=0;
+  for(let k=0;k<2;k++)if(isVideo(k)){imgs[k].currentTime=0;imgs[k].play().catch(()=>{});}
   rec={t0:performance.now(),mr};
   mr.start(500);
   const tick=()=>{ if(!rec)return; const left=Math.ceil(15-(performance.now()-rec.t0)/1000);
@@ -279,6 +298,7 @@ saveBtn.addEventListener('click',async()=>{
 });
 
 function frame(now){
+  for(let k=0;k<2;k++)if(isVideo(k)&&imgs[k].readyState>=2)drawFrame(k);
   if(rec){const t=(now-rec.t0)/1000; target.x=dragPath(t); target.y=Math.sin(t*1.3)*.12;}
   else if(!touched&&!still){target.x=Math.sin((now-t0)/1400)*.55;target.y=Math.sin((now-t0)/2300)*.3;}
   tilt.x+=(target.x-tilt.x)*.14;tilt.y+=(target.y-tilt.y)*.14;
