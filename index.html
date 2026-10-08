@@ -173,7 +173,13 @@ let motionOn=false;
 function onOri(e){ if(e.gamma==null)return; touched=true; motionOn=true;
   target.x=Math.max(-1,Math.min(1,e.gamma/28));
   target.y=Math.max(-1,Math.min(1,((e.beta||45)-45)/30)); }
+function motionOff(){
+  window.removeEventListener('deviceorientation',onOri);
+  motionOn=false; btn.textContent='傾きセンサーを使う';
+  say('センサーを止めた。ドラッグで傾けて。');
+}
 btn.addEventListener('click',async()=>{
+  if(motionOn){motionOff();return;}
   const D=window.DeviceOrientationEvent;
   if(!D){say('この端末には傾きセンサーがない。ドラッグで傾けて。');return;}
   try{
@@ -184,6 +190,7 @@ btn.addEventListener('click',async()=>{
     window.addEventListener('deviceorientation',probe);
     window.addEventListener('deviceorientation',onOri);
     setTimeout(()=>{window.removeEventListener('deviceorientation',probe);
+      if(got)btn.textContent='センサーを止める';
       say(got?'センサー有効。端末を左右に傾けて。':'このページの中ではセンサーの値が届かない。ドラッグで傾けて。');},900);
   }catch(err){say('このページの中ではセンサーが許可されない。ドラッグで傾けて。');}
 });
@@ -192,7 +199,7 @@ btn.addEventListener('click',async()=>{
 let wake=null;
 function diag(){
   const sa=$('sa').getBoundingClientRect(), vv=window.visualViewport;
-  $('diag').textContent=['v6',
+  $('diag').textContent=['v7',
     'standalone '+(navigator.standalone===true||matchMedia('(display-mode: standalone)').matches),
     'screen '+screen.width+'x'+screen.height,
     'inner '+innerWidth+'x'+innerHeight,
